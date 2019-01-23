@@ -14,25 +14,44 @@ HX711 scale(7,8); //initiate scale on pins 7 &
 #define D6_pin 6
 #define D7_pin 7
 
-#define tear_pin 9
-
-int tear_offset = 0; //declare the tear veriable as a global
-
-LiquidCrystal_I2C lcd(I2C_ADDR, En_pin, Rw_pin, Rs_pin, D4_pin, D5_pin, D6_pin, D7_pin);
-
-//Define shift register pins 
-#define SER    6  // data in
-#define SRCLK  5  // shift register clock
-#define SRCLR  4  // clear shift register
-#define RCLK   3  // storage register
-
-
+LiquidCrystal_I2C lcd(I2C_ADDR, En_pin, Rw_pin, Rs_pin, D4_pin, D5_pin, D6_pin, D7_pin); //Decalre LCD
 
 void lcdREFRESH(){
   lcd.clear(); //refresh lcd
   lcd.setCursor(1, 0);// set lcd to "home"
   
 }
+
+
+//TEAR
+#define tear_pin 10 //pin for tear button
+int tear_offset = 0; //declare the tear veriable as a global
+
+int read_scale_adjusted(bool tear){ //return the adjusteed readering of the scale
+  //int RAW_read = scale.read(); //read the scale for procesing later
+  //int MAP_read = (RAW_read+198729);
+  //MAP_read = MAP_read/-369;
+
+  int MAP_read = map(scale.read(), -196601.7354, -208234.47, 0, 41);
+  delay(100);
+  
+  if(tear == true){
+    return(MAP_read+tear_offset);
+  }else{
+   return(MAP_read); 
+  }
+}
+
+
+//FOODS
+String foods[3] = {"Flower  ", "Eggs    ", "Suggar3   "};
+
+
+//SHIFT REGISTER 
+#define SER    6  // data in
+#define SRCLK  5  // shift register clock
+#define SRCLR  4  // clear shift register
+#define RCLK   3  // storage register
 
 // clear the shift registers without affecting the storage registers.
 void clearShiftRegisters() {
@@ -78,28 +97,39 @@ void outputLED(int v1, int v2){
   }
   copyShiftToStorage();
 
+}//end outputLED
+
+
+//ROTARY ENCODER
+#define DT 2 //pin for rot encoder
+#define CLK 9 //pin for rot encoder
+unsigned short int encoder0POS = 0; //value for rot encoder mode A
+
+volatile bool turndetected;
+volatile bool up;
+
+void encoderisr ()  {
+  turndetected = true;
+  up = (digitalRead(CLK) == digitalRead(DT));
 }
 
-
-
-int read_scale_adjusted(bool tear){ //return the adjusteed readering of the scale
-  int RAW_read = scale.read(); //read the scale for procesing later
-  float n = RAW_read;
-  n = n / 100.00;
-  n = round(n);
-  n = n * 100.00;
-  RAW_read = n;
-  int MAP_read = (RAW_read+198729);
-  MAP_read = MAP_read/-369;
-  if(tear == true){
-    return(MAP_read+tear_offset);
-  }else{
-   return(MAP_read); 
+void encoderREFRESH(){ //function to update encoder
+  if (turndetected) {//if isr flag is set
+    if(up){
+      encoder0POS++;
+    }else{
+      encoder0POS--;
+    }
+    turndetected = false; //rest isr flag
+    
+    #if defined(SERIAL_DEBUG)
+      Serial.println("ENCODER REFRESHED");
+    #endif
   }
-}
-
+}//end encoderREFRESH 
 
 void setup() {
+  pinMode(13, OUTPUT);
   
   lcd.begin(16, 2); //begin LCD
   lcd.setBacklightPin(BACKLIGHT_PIN, POSITIVE);// Switch on the backlight
@@ -111,7 +141,7 @@ void setup() {
   pinMode(SRCLR,OUTPUT);
   pinMode(RCLK,OUTPUT);
 
-  pinMode(tear_pin,OUTPUT);
+  pinMode(tear_pin, INPUT_PULLUP);
   
   clearShiftRegisters();
 
@@ -119,33 +149,31 @@ void setup() {
 
   tear_offset = 0 - read_scale_adjusted(false);
   Serial.begin(9600);
+
+  attachInterrupt (digitalPinToInterrupt(2),encoderisr,FALLING); //rotary encoder isr
 }
 
 void loop() {
+  encoderREFRESH();//refresh encoder
    
-   outputLED(map(read_scale_adjusted(true), 0, 50,0,10), 5);
-
-
+   //outputLED(map(read_scale_adjusted(true), 0, 50,0,10), 5);
+  outputLED(10,10);
   char msg[21];
   
-  sprintf(msg, "av:  %-7d", read_scale_adjusted(true));
   lcd.setCursor(0, 0);// Next line
-  lcd.print(msg);
+  lcd.print("Food: " + foods[encoder0POS % 3]);
 
  
   
-  //sprintf(msg, "av': %-7d", adapted);
+  sprintf(msg, "Mass: %-7d", encoder0POS);
   lcd.setCursor(0, 1);// Next line
   lcd.print(msg);
 
 
 
 
-   if(digitalRead(tear_pin) == HIGH){//if the tear button has been pressed
+   if(digitalRead(tear_pin) == LOW){//if the tear button has been pressed
     tear_offset = 0 - read_scale_adjusted(false);
+    digitalWrite(13,HIGH);
    }
 }
-
-
-
-
